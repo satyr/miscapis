@@ -1,5 +1,6 @@
-﻿import wsgiref.handlers
+import wsgiref.handlers, urllib2, logging
 from google.appengine.ext import webapp
+from google.appengine.api import memcache
 
 class Form(webapp.RequestHandler):
   def get(self):
@@ -20,22 +21,27 @@ class Form(webapp.RequestHandler):
 
 class XpandURL(webapp.RequestHandler):
   def get(self, path):
-    import urllib2, logging
     myreq = self.request
     url = myreq.get('url') or urllib2.unquote(path)
     cb  = myreq.get('callback', None)
-    req = urllib2.Request(url, headers = myreq.headers)
-    req.get_method = lambda: 'HEAD'
-    res = None
-    try:
-      res = urllib2.urlopen(req)
-    except urllib2.HTTPError, ex:
-      logging.error('%s %s\n%s' % (ex.code, ex.msg, ex.read()))
-      res = ex
-    except urllib2.URLError, ex:
-      logging.error(ex)
-      myres.set_status(500, `ex`)
-    loc = res.geturl().decode('utf-8') if res else url
+    loc = memcache.get(url, 'xpu')
+    if not loc:
+      req = urllib2.Request(url, headers = myreq.headers)
+      req.get_method = lambda: 'HEAD'
+      res = None
+      try:
+        res = urllib2.urlopen(req)
+      except urllib2.HTTPError, ex:
+        logging.error('%s %s\n%s' % (ex.code, ex.msg, ex.read()))
+        res = ex
+      except urllib2.URLError, ex:
+        logging.error(ex)
+        myres.set_status(500, `ex`)
+      if res:
+        loc = res.geturl().decode('utf-8')
+        memcache.set(url, loc, time = 180, namespace = 'xpu')
+      else:
+        loc = url
     if cb != None:
       import pprint
       loc = cb +'("'+ (pprint.pformat("'"+ loc.replace('"', '\0'))
@@ -46,7 +52,6 @@ class XpandURL(webapp.RequestHandler):
 
 class WebIConv(webapp.RequestHandler):
   def get(self):
-    import urllib2
     url = self.request.get('url', 'http://miscapis.appspot.com')
     csf = self.request.get('from', '')
     cst = self.request.get('to', '')
@@ -59,7 +64,6 @@ class WebIConv(webapp.RequestHandler):
 class Cr0n(webapp.RequestHandler):
   def get(self, path):
     if(not path): return
-    import urllib2, logging
     try:
       url = urllib2.unquote(path)
       res = urllib2.urlopen(url)
@@ -73,7 +77,7 @@ class Cr0n(webapp.RequestHandler):
     self.response.headers.add_header('Content-Type',
                                      'text/plain;charset=utf-8')
     self.response.out.write(str(head) +'\n')
-    text = iconv(res.read(), cset)
+    text = iconv(res.read(), cset, 'utf-8')
     self.response.out.write(text)
     logging.info(text)
 
