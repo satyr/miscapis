@@ -20,18 +20,29 @@ class Form(webapp.RequestHandler):
 
 class XpandURL(webapp.RequestHandler):
   def get(self, path):
-    import urllib2, pprint
-    url = self.request.get('url') or urllib2.unquote(path)
-    clb = self.request.get('callback', None)
-    req = urllib2.Request(url)
+    import urllib2, logging
+    myreq = self.request
+    url = myreq.get('url') or urllib2.unquote(path)
+    cb  = myreq.get('callback', None)
+    req = urllib2.Request(url, headers = myreq.headers)
     req.get_method = lambda: 'HEAD'
-    loc = urllib2.urlopen(req).geturl().decode('utf-8')
-    if clb != None:
-      loc = clb +'("'+ (pprint.pformat("'"+ loc.replace('"', '\0'))
-                        .replace(r'\x00', r'\"')[3:]) +')'
-    self.response.headers.add_header('Content-Type',
-                                     'text/plain;charset=utf-8')
-    self.response.out.write(loc)
+    res = None
+    try:
+      res = urllib2.urlopen(req)
+    except urllib2.HTTPError, ex:
+      logging.error('%s %s\n%s' % (ex.code, ex.msg, ex.read()))
+      res = ex
+    except urllib2.URLError, ex:
+      logging.error(ex)
+      myres.set_status(500, `ex`)
+    loc = res.geturl().decode('utf-8') if res else url
+    if cb != None:
+      import pprint
+      loc = cb +'("'+ (pprint.pformat("'"+ loc.replace('"', '\0'))
+                       .replace(r'\x00', r'\"')[3:]) +')'
+    myres = self.response
+    myres.headers.add_header('Content-Type', 'text/plain;charset=utf-8')
+    myres.out.write(loc)
 
 class WebIConv(webapp.RequestHandler):
   def get(self):
