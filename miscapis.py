@@ -5,28 +5,29 @@ from google.appengine.api import memcache
 class Form(webapp.RequestHandler):
   def get(self):
     self.response.out.write("""\
-<!doctype html>
+<!DOCTYPE html>
 <title>MiscAPIs</title>
 <h2>xpandurl</h2>
 <form action=/xpandurl target=_blank><pre>
-      URL: <input name=url size=80>
- callback: <input name=callback size=20
+      URL: <input name=url title=u(rl) size=80 value=http://goo.gl/mR2d>
+ callback: <input name=callback title=c(allback) size=20
 ><input type=submit></pre></form>
 <h2>webiconv</h2>
 <form action=/webiconv target=_blank><pre>
-      URL: <input name=url size=80>
-  charset: <input name=from size=16> -&gt; <input name=to size=16
+      URL: <input name=url  title=u(rl)  size=80>
+  charset: <input name=from title=f(rom) size=16
+   > -&gt; <input name=to   title=t(o)   size=16 value=euc-jp
 ><input type=submit></pre></form>
 """)
 
 class XpandURL(webapp.RequestHandler):
   def get(self, path):
-    myreq = self.request
-    url = myreq.get('url') or urllib2.unquote(path)
-    cb  = myreq.get('callback', None)
+    rq, rs = self.request, self.response
+    url = rq.get('u') or rq.get('url') or urllib2.unquote(path)
+    cb  = rq.get('c') or rq.get('callback')
     loc = memcache.get(url, 'xpu')
     if not loc:
-      req = urllib2.Request(url, headers = myreq.headers)
+      req = urllib2.Request(url, headers = rq.headers)
       req.get_method = lambda: 'HEAD'
       res = None
       try:
@@ -42,48 +43,51 @@ class XpandURL(webapp.RequestHandler):
         memcache.set(url, loc, time = 180, namespace = 'xpu')
       else:
         loc = url
-    if cb != None:
+    if cb:
       import pprint
       loc = cb +'("'+ (pprint.pformat("'"+ loc.replace('"', '\0'))
                        .replace(r'\x00', r'\"')[3:]) +')'
-    myres = self.response
-    myres.headers.add_header('Content-Type', 'text/plain;charset=utf-8')
-    myres.out.write(loc)
+    rs.headers.add_header('Content-Type', 'text/plain;charset=utf-8')
+    rs.out.write(loc)
 
 class WebIConv(webapp.RequestHandler):
   def get(self):
-    url = self.request.get('url', 'http://miscapis.appspot.com')
-    csf = self.request.get('from', '')
-    cst = self.request.get('to', '')
+    rq, rs = self.request, self.response
+    url = rq.get('u') or rq.get('url') or 'http://google.com'
+    csf = rq.get('f') or rq.get('from')
+    cst = rq.get('t') or rq.get('to') or 'utf-8'
     res = urllib2.urlopen(url)
     head = res.info()
-    mime = str((head['content-type'] or 'text/html') +'; charset='+ cst)
-    self.response.headers.add_header('Content-Type', mime)
-    self.response.out.write(iconv(res.read(), csf, cst))
+    tipe, cso = detype(head)
+    rs.headers.add_header('Content-Type', tipe, charset = str(cst))
+    rs.out.write(iconv(res.read(), csf or cso, cst))
 
 class Cr0n(webapp.RequestHandler):
   def get(self, path):
-    if(not path): return
+    rs = self.response
+    if not path: return
     try:
       url = urllib2.unquote(path)
       res = urllib2.urlopen(url)
     except Exception, ex:
-      logging.error(str(ex))
+      logging.error(ex)
       return
     head = res.info()
-    cset = 'utf-8'
-    mmsp = head['content-type'].split('=')
-    if len(mmsp) == 2: cset = mmsp.pop()
-    self.response.headers.add_header('Content-Type',
-                                     'text/plain;charset=utf-8')
-    self.response.out.write(str(head) +'\n')
-    text = iconv(res.read(), cset, 'utf-8')
-    self.response.out.write(text)
+    rs.headers.add_header('Content-Type', 'text/plain;charset=utf-8')
+    rs.out.write(str(head) +'\n')
+    text = iconv(res.read(), detype(head)[1])
+    rs.out.write(text)
     logging.info(text)
 
-def iconv(s, fr, to):
+def detype(head):
+  ct = head['content-type'] or 'text/plain'
+  return (str(ct.split(';', 1)[0].strip()),
+          str(ct.rsplit('=', 1)[-1].strip() if ct.count('=') else ''))
+
+def iconv(s, fr = '', to = ''):
   if s[0:3] == '\xef\xbb\xbf': s = s[3:] # nuking BOM
-  return s.decode(fr or 'utf-8').encode(to or 'utf-8')
+  if fr: s = s.decode(fr)
+  return s.encode(to or 'utf-8')
 
 def main():
   wsgiref.handlers.CGIHandler().run(webapp.WSGIApplication([
