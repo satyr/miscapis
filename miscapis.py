@@ -34,10 +34,10 @@ class XpandURL(webapp.RequestHandler):
         res = urllib2.urlopen(req)
       except urllib2.HTTPError, ex:
         logging.error('%s %s\n%s' % (ex.code, ex.msg, ex.read()))
-        res = ex
+        rs.set_status(ex.code, ex.msg)
       except urllib2.URLError, ex:
         logging.error(ex)
-        myres.set_status(500, `ex`)
+        rs.set_status(500, `ex`)
       if res:
         loc = res.geturl().decode('utf-8')
         memcache.set(url, loc, time = 180, namespace = 'xpu')
