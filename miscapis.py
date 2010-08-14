@@ -26,7 +26,16 @@ class XpandURL(webapp.RequestHandler):
     url = rq.get('u') or rq.get('url') or urllib2.unquote(path)
     cb  = rq.get('c') or rq.get('callback')
     loc = memcache.get(url, 'xpu')
+    msg = 'maybe'
     if not loc:
+      urls = [url]
+      class MyHTTPRedirectHandler(urllib2.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+          urls.append(newurl)
+          return urllib2.HTTPRedirectHandler.redirect_request(
+            self, req, fp, code, msg, hdrs, newurl)
+      opener = urllib2.build_opener(MyHTTPRedirectHandler)
+      urllib2.install_opener(opener)
       req = urllib2.Request(url, headers = rq.headers)
       req.get_method = lambda: 'HEAD'
       res = None
@@ -34,19 +43,20 @@ class XpandURL(webapp.RequestHandler):
         res = urllib2.urlopen(req)
       except urllib2.HTTPError, ex:
         logging.error('%s %s\n%s' % (ex.code, ex.msg, ex.read()))
-        rs.set_status(ex.code, ex.msg)
+        msg = str(ex.code) +' '+ ex.msg
       except urllib2.URLError, ex:
         logging.error(ex)
-        rs.set_status(500, `ex`)
+        msg = '500 '+ str(ex.reason)
       if res:
         loc = res.geturl().decode('utf-8')
         memcache.set(url, loc, time = 180, namespace = 'xpu')
       else:
-        loc = url
+        loc = urls[-1]
     if cb:
       import pprint
       loc = cb +'("'+ (pprint.pformat("'"+ loc.replace('"', '\0'))
                        .replace(r'\x00', r'\"')[3:]) +')'
+    rs.set_status(200, msg)
     rs.headers.add_header('Content-Type', 'text/plain;charset=utf-8')
     rs.out.write(loc)
 
